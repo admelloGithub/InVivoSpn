@@ -752,7 +752,7 @@ scatterplot3d(pca$x[,c(1,3,2)], pch = dpch, type="h", cex.axis = 2, cex.symbols 
               color=grp.col)
 dev.off()
 
-img2<- rasterGrob(readPNG("C:/Users/adoni/Desktop/PERCK/Cell figures/dpca.png", native = FALSE),interpolate = FALSE)
+img2<- rasterGrob(readPNG(paste0(output_dir,"/dpca.png"), native = FALSE),interpolate = FALSE)
 
 pdf(paste0(output_dir,'Figure 3.pdf'), paper = "a4r", width = 0, height = 0)  ## Device with dimensions of A4 paper
 grid.arrange(arrangeGrob(pca.plot,img2, ncol = 2), dendrogram.plot,nrow = 2)

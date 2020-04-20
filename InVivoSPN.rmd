@@ -1,0 +1,1470 @@
+---
+title: "Untitled"
+author: "Adonis D'mello"
+output: PDFs/PNGs/Txt files
+---
+
+
+#Packages
+
+```{r}
+require(cowplot)
+require(dendextend)
+require(edgeR)
+require(FactoMineR)
+require(ggdendro)
+require(ggplot2)
+require(gplots)
+require(gridExtra)
+require(gtools)
+require(pvclust)
+require(reshape)
+require(vegan)
+require(WGCNA)
+require(ggfortify)
+require(ggrepel)
+require(GGally)
+require(DESeq2)
+require(pathview)
+require(reshape2)
+require(KEGGprofile)
+require(UpSetR)
+require(biomaRt)
+require(tidyr)
+require(factoextra)
+require(png)
+require(grid)
+require(gridExtra)
+require(dplyr)
+require(ggpubr)
+require(scatterplot3d)
+require(rgl)
+require(pca3d)
+require(png)
+require(ggplotify)
+require(gridGraphics)
+```
+
+#Functions
+```{r}
+get_heatmap_separators <- function(vector){
+  sep <- c()
+  for(i in 2:length(unique(vector))){
+    sep[length(sep) + 1] <- min(which(vector == unique(vector)[i])) - 1
+  }
+  return(sep)
+}
+
+merge.all <- function(x, ..., by = "row.names") {
+  L <- list(...)
+  for (i in seq_along(L)) {
+    x <- merge(x, L[[i]], by = by, all=TRUE)
+    rownames(x) <- x$Row.names
+    x$Row.names <- NULL
+  }
+  return(x)
+}
+
+add_kegg_seperators <- function(z_norm_exp_matrix,groups) {
+    
+    order <- c(colnames(z_norm_exp_matrix))
+    ct <- 0
+    
+    for (j in 1:length(groups)) {
+    if (j == length(groups) ) {
+      next
+    }
+    if (groups[j]==groups[j+1]) {
+        next
+    } else if (groups[j]!=groups[j+1]) {
+      order <- append(order,"Sep",after = j+ct)
+      ct <- ct+1
+        }
+    }
+    
+    for (i in 1:ct) {
+    z_norm_exp_matrix <- cbind(z_norm_exp_matrix, Sep=NA)
+    }
+    z_norm_exp_matrix <- z_norm_exp_matrix[,order]
+    return(z_norm_exp_matrix)
+}
+
+get_dendro_structure <- function(result){
+  structure <- hang.dendrogram(as.dendrogram(result$hclust))
+  structure <- capture.output(str(structure))
+  structure <- structure[grepl("leaf", structure)]
+  structure <- as.numeric(as.character(substr(structure, regexpr("h=", structure ) + 3, regexpr("  )", structure))))
+  return(structure)
+}
+
+get_dendro_data <- function(result){
+  dendro.data <- dendro_data(result$hclust)
+  dendro.data <- dendro.data$segments[which(dendro.data$segments$y == dendro.data$segments$yend),]
+  for(i in 1:nrow(dendro.data)){
+    dendro.data$minx[i] <- min(c(dendro.data$x[i], dendro.data$xend[i]))
+  }
+  dendro.data <- dendro.data[order(as.numeric(as.character(dendro.data$y)), as.numeric(as.character(dendro.data$minx))),]
+  return(dendro.data)
+}
+
+get_dendro_bootstraps <- function(dendro_data){
+  bootstrap.positions <- as.data.frame(matrix(nrow = length(dendro_data$y[duplicated(dendro_data$y)]),
+                                              ncol = 2))
+  for(i in 1:length(dendro_data$y[duplicated(dendro_data$y)])){
+    dendro_data.subset <- dendro_data[which(dendro_data$y == dendro_data$y[duplicated(dendro_data$y)][i]),]
+    bootstrap.positions[i,1] <- unique(dendro_data.subset$x)
+    bootstrap.positions[i,2] <- unique(dendro_data.subset$y)
+  }
+  return(bootstrap.positions)
+}
+
+
+
+query_upset <- function(set, queries) {
+      if (length(queries) ==1) {
+      intersect <- set[,queries,drop = F]
+      intersect$tmp = 0
+      intersect <- intersect[rowSums(intersect)==1,]
+    } else {
+      intersect <- set[,queries]
+      intersect <- intersect[rowSums(intersect) == length(queries),]
+    }
+  tmp <- set[rownames(intersect),]
+  tmp <- tmp[rowSums(tmp) == length(queries),]
+  return(tmp)
+}
+
+
+PlotPCA3DScoreImg <- function(mSetObj=NA, imgName, format="png", dpi=72, width=NA, inx1, inx2, inx3, angl){
+  
+  mSetObj <- .get.mSet(mSetObj);
+  
+  xlabel = paste("PC",inx1, "(", round(100*mSetObj$analSet$pca$variance[inx1],1), "%)");
+  ylabel = paste("PC",inx2, "(", round(100*mSetObj$analSet$pca$variance[inx2],1), "%)");
+  zlabel = paste("PC",inx3, "(", round(100*mSetObj$analSet$pca$variance[inx3],1), "%)");
+  
+  imgName = paste(imgName, "dpi", dpi, ".", format, sep="");
+  
+  if(is.na(width)){
+    w <- 9;
+  }else if(width == 0){
+    w <- 7.2;
+  }else{
+    w <- width;
+  }
+  h <- w;
+  
+  mSetObj$imgSet$pca.score3d <- imgName;
+  
+  Cairo::Cairo(file = imgName, unit="in", dpi=dpi, width=w, height=h, type=format, bg="white");
+
+  pchs <- as.numeric(mSetObj$dataSet$cls)+1;
+  uniq.pchs <- unique(pchs);
+  
+  if(mSetObj$dataSet$cls.type == "disc"){
+
+    cols <- GetColorSchema(mSetObj);
+    legend.nm <- unique(as.character(mSetObj$dataSet$cls));
+    uniq.cols <- unique(cols);
+    Plot3D(mSetObj$analSet$pca$x[, inx1], mSetObj$analSet$pca$x[, inx2], mSetObj$analSet$pca$x[, inx3], xlab= xlabel, ylab=ylabel,
+           zlab=zlabel, angle =angl, color=cols, pch=pchs, box=F);
+    legend("topleft", legend =legend.nm, pch=uniq.pchs, col=uniq.cols);
+    dev.off();
+    
+    if(!.on.public.web){
+      # 3D View using plotly
+      if(length(uniq.pchs) > 3){
+        col <- RColorBrewer::brewer.pal(length(uniq.pchs), "Set3")
+      }else{
+        col <- c("#1972A4", "#FF7070")
+      }
+      
+      p <- plotly::plot_ly(x = mSetObj$analSet$pca$x[, inx1], y = mSetObj$analSet$pca$x[, inx2], z = mSetObj$analSet$pca$x[, inx3],
+                 color = mSetObj$dataSet$cls, colors = col) 
+      p <- plotly::add_markers(p, sizes = 5)
+      p <- plotly::layout(p, scene = list(xaxis = list(title = xlabel),
+                          yaxis = list(title = ylabel),
+                          zaxis = list(title = zlabel)))
+      mSetObj$imgSet$pca.3d <- p;
+      print("The Interactive 3D PCA plot has been created, please find it in mSet$imgSet$pca.3d.")
+    }
+    
+  }else{
+    
+    Plot3D(mSetObj$analSet$pca$x[, inx1], mSetObj$analSet$pca$x[, inx2], mSetObj$analSet$pca$x[, inx3], xlab= xlabel, ylab=ylabel,
+           zlab=zlabel, angle =angl, pch=pchs, box=F);
+    dev.off();
+    
+    if(!.on.public.web){
+      # 3D View using plotly
+      col <- c("#C61951", "#1972A4")
+      p <- plotly::plot_ly(x = mSetObj$analSet$pca$x[, inx1], y = mSetObj$analSet$pca$x[, inx2], z = mSetObj$analSet$pca$x[, inx3],
+                           color = pchs, colors = col, marker = list(colorbar = list(len = 1, tickmode = array, tickvals = range(unique(pchs)),
+                                                                                     ticktext = levels(mSetObj$dataSet$cls)))); 
+      p <- plotly::add_markers(p, sizes = 1000);
+      p <- plotly::layout(p, scene = list(xaxis = list(title = xlabel),
+                                          yaxis = list(title = ylabel),
+                                          zaxis = list(title = zlabel)));
+      mSetObj$imgSet$pca.3d <- p;
+      print("The Interactive 3D PCA plot has been created, please find it in mSet$imgSet$pca.3d.")
+    }
+  }
+  return(.set.mSet(mSetObj));
+}
+
+.on.public.web <- FALSE;
+.set.mSet <- function(mSetObj=NA){
+  if(.on.public.web){
+    mSet <<- mSetObj;
+    return (1);
+  }
+  return(mSetObj);
+}
+
+.get.mSet <- function(mSetObj=NA){
+  if(.on.public.web){
+    return(mSet)
+  }else{
+    return(mSetObj);
+  }
+}
+
+
+```
+
+#Directories
+```{r}
+input_dir <- "/Users/adoni/Desktop/PERCK/codetest/input/"
+output_dir <- "/Users/adoni/Desktop/PERCK/codetest/output/"
+```
+
+#Figure 1
+
+```{r}
+
+
+readsmapped <- paste0(input_dir,"/ReadsMapped.txt") 
+inp <- read.csv(readsmapped, header = T,sep = "\t", as.is = T,numerals = "no.loss", row.names = 1)
+
+inp <- cbind(Sample = factor(rownames(inp), levels = as.vector(rownames(inp))), inp)
+
+colors <- c(rep("dodgerblue4",2),rep("dodgerblue1",6),rep("green4",2),rep("green1",6),rep("firebrick4",2),rep("firebrick1",6),rep("orange4",3),rep("orange1",3),rep("black",2),rep("grey50",6))
+
+bac <- ggplot(inp, aes(x=inp$Sample, y=log10(inp$Spn), color = inp$Sample, fill = inp$Sample)) + geom_histogram(stat = "identity", show.legend = FALSE, alpha =0.8)  + #coord_cartesian(ylim=c(0,1000000)) + 
+  scale_color_manual(values = colors) + scale_fill_manual(values = colors) + geom_hline(yintercept = log10(150000)) +
+  labs(title = "C",x="", y=expression(log[10]~"(Mapped "~italic(SPN)~" Reads)"))+theme_bw()  + theme(axis.text.x = element_blank())
+
+burden <- ggplot(inp, aes(x=inp$Sample, y=log10(inp$Spn/inp$Totalreads), color = inp$Sample, fill = inp$Sample)) + geom_point(stat = "identity", show.legend = FALSE) + scale_color_manual(values = colors) + scale_fill_manual(values = colors) + #coord_cartesian(ylim=c(0,1000000)) + 
+  labs(x="", y=expression(log[10]~"("~italic(SPN)~"/Total Reads)"))+theme_bw()  + theme(axis.text.x = element_text(angle = 90, hjust = 1),axis.title.y = element_text(vjust = 1.5)) 
+
+host <- ggplot(inp, aes(x=inp$Sample, y=log10(inp$Mouse), color = inp$Sample, fill = inp$Sample)) + geom_histogram(stat = "identity", show.legend = FALSE, alpha =0.8) + scale_color_manual(values = colors) + scale_fill_manual(values = colors) + geom_hline(yintercept = log10(150000)) +#coord_cartesian(ylim=c(0,1000000)) + 
+  labs(x="", y=expression(log[10]~"(Mapped Host Reads)"))+theme_bw()  + theme(axis.text.x = element_blank())
+
+counts.path <- paste0(input_dir,"/Core_counts.txt") 
+groups.path <- paste0(input_dir,"/Core_design.txt") 
+comparisons <- c("Blood_vs_Naso","Heart_vs_Naso","Lung_vs_Naso","Kidney_vs_Naso")
+
+counts <- read.delim(counts.path, header = T, row.names = 1)
+design <- read.delim(groups.path, header = T)
+
+#Aquiring colors 
+grp.col <- design[,ncol(design)-1]
+grp.pch <- design[,ncol(design)]
+colSums(counts)
+sort(colSums(counts))
+colnames(counts)
+
+if (length(colnames(design)) > 4) {
+  dds <- DESeqDataSetFromMatrix(countData = floor(counts), colData = design, design = ~ donor + condition )
+} else {
+  dds <- DESeqDataSetFromMatrix(countData = counts, colData = design, design = ~ condition )
+}
+dds <- DESeq(dds, betaPrior = F)
+contrast.list <- data.frame(Contrast=comparisons)
+
+torarefy <- c()
+
+for (i in contrast.list$Contrast) {
+	pair <- as.data.frame(strsplit(as.character(i),'_vs_'))
+	DE.genes <- as.data.frame(results(dds, contrast=c("condition",as.character(pair[1,]),as.character(pair[2,])), independentFiltering = TRUE, alpha=0.05))
+	DE.genes <- na.omit(DE.genes)
+	rareall <- as.data.frame(c(rep_len(1,length.out = length(row.names(DE.genes)))),row.names = rownames(DE.genes) )
+	torarefy <- merge.all(torarefy,rareall)
+}
+
+colnames(torarefy) <- as.vector(contrast.list$Contrast)
+torarefy[is.na(torarefy)]<-0
+
+rarefy.counts <- round(counts[rownames(torarefy),],0)
+raremax <- round(min(rowSums(t(rarefy.counts))),0)
+srare <- rarefy(t(rarefy.counts),raremax)
+
+rarefy.raw.df <- rarecurve(t(rarefy.counts), step = round(raremax/10,0), sample = raremax)
+
+rarefy.df <- as.data.frame(matrix(nrow = 0,
+                                  ncol = 5))
+rarefy.points.df <- rarefy.df
+for(i in 1:length(rarefy.raw.df)){
+  steps <- as.numeric(gsub("N","",names(rarefy.raw.df[[i]])))
+  detected_genes <- as.numeric(rarefy.raw.df[[i]])
+  rarefy.df <- as.data.frame(rbind(rarefy.df,
+                                   cbind(as.numeric(steps),as.numeric(detected_genes),as.character(design[i,1]),as.character(design[i,3]),design[i,4])))
+  rarefy.points.df <- as.data.frame(rbind(rarefy.points.df,
+                                          cbind(as.numeric(max(steps)),as.numeric(max(detected_genes)),as.character(design[i,1]),as.character(design[i,3],design[i,4]))))
+  
+}
+
+  pca.col <- unique(cbind(as.data.frame(design$condition),grp.col))[,2]
+  pca.col <- factor(grp.col , levels = as.vector(pca.col))
+  
+rarefy.plot <- ggplot()+
+  geom_line(mapping=aes(x=as.numeric(as.character(rarefy.df[,1])), y=as.numeric(as.character(rarefy.df[,2])),group=rarefy.df[,3],color=rarefy.df[,4]))+
+  #geom_point(mapping=aes(x=as.numeric(as.character(rarefy.df[,1])), y=as.numeric(as.character(rarefy.df[,2])),group=rarefy.df[,3],color=rarefy.df[,4]))+
+  geom_point(mapping=aes(x=as.numeric(as.character(rarefy.points.df[,1])), y=as.numeric(as.character(rarefy.points.df[,2])),group=rarefy.points.df[,3],color=rarefy.points.df[,4]),size = 3)+
+  guides(colour = F,shape = F)+
+  scale_color_manual(values = levels(pca.col))+
+  labs(title = "A",x=expression("Reads mapping to "~italic(SPN)~" core genes"), y=expression(italic(SPN)~" Genes detected"), color = "Sample") + xlim(0,1000000)+
+  theme_bw()
+
+
+counts.path2 <- paste0(input_dir,"/Host_counts.txt") 
+groups.path2 <- paste0(input_dir,"/Host_design.txt")
+comparisons2 <- c("D39_Inf_Blood_vs_Uninf_Blood","D39_Inf_Kidney_vs_Uninf_Kidney","D39_Inf_Lung_vs_Uninf_Lung","D39_Inf_Naso_vs_Uninf_Naso","TIGR4_Inf_Blood_vs_Uninf_Blood","TIGR4_Inf_Heart_vs_Uninf_Heart","TIGR4_Inf_Kidney_vs_Uninf_Kidney","TIGR4_Inf_Lung_vs_Uninf_Lung","TIGR4_Inf_Naso_vs_Uninf_Naso","6A10_Inf_Blood_vs_Uninf_Blood","6A10_Inf_Lung_vs_Uninf_Lung","6A10_Inf_Naso_vs_Uninf_Naso")
+
+counts2 <- read.delim(counts.path2, header = T, row.names = 1)
+design2 <- read.delim(groups.path2, header = T)
+
+#Aquiring colors 
+grp.col2 <- design2[,ncol(design2)-1]
+grp.pch2 <- design2[,ncol(design2)]
+
+if (length(colnames(design2)) > 4) {
+  dds2 <- DESeqDataSetFromMatrix(countData = floor(counts2), colData = design2, design = ~ donor + condition )
+} else {
+  dds2 <- DESeqDataSetFromMatrix(countData = counts2, colData = design2, design = ~ condition )
+}
+dds2 <- DESeq(dds2, betaPrior = F)
+contrast.list <- data.frame(Contrast=comparisons2)
+torarefy2 <- c()
+
+for (i in contrast.list$Contrast) {
+	pair <- as.data.frame(strsplit(as.character(i),'_vs_'))
+	DE.genes <- as.data.frame(results(dds2, contrast=c("condition",as.character(pair[1,]),as.character(pair[2,])), independentFiltering = TRUE, alpha=0.05))
+	DE.genes <- na.omit(DE.genes)
+	rareall <- as.data.frame(c(rep_len(1,length.out = length(row.names(DE.genes)))),row.names = rownames(DE.genes) )
+	torarefy2 <- merge.all(torarefy2,rareall)
+}
+
+colnames(torarefy2) <- as.vector(contrast.list$Contrast)
+torarefy2[is.na(torarefy2)]<-0
+
+rarefy.counts2 <- round(counts2[rownames(torarefy2),],0)
+raremax2 <- round(min(rowSums(t(rarefy.counts2))),0)
+srare2 <- rarefy(t(rarefy.counts2),raremax2)
+
+rarefy.raw.df2 <- rarecurve(t(rarefy.counts2), step = round(raremax2/10,0), sample = raremax2)
+
+rarefy.df2 <- as.data.frame(matrix(nrow = 0,
+                                  ncol = 5))
+rarefy.points.df2 <- rarefy.df2
+for(i in 1:length(rarefy.raw.df2)){
+  steps2 <- as.numeric(gsub("N","",names(rarefy.raw.df2[[i]])))
+  detected_genes2 <- as.numeric(rarefy.raw.df2[[i]])
+  rarefy.df2 <- as.data.frame(rbind(rarefy.df2,
+                                   cbind(as.numeric(steps2),as.numeric(detected_genes2),as.character(design2[i,1]),as.character(design2[i,3]),design2[i,4])))
+  rarefy.points.df2 <- as.data.frame(rbind(rarefy.points.df2,
+                                          cbind(as.numeric(max(steps2)),as.numeric(max(detected_genes2)),as.character(design2[i,1]),as.character(design2[i,3],design2[i,4]))))
+  
+}
+
+  pca.col2 <- cbind(as.data.frame(design2$condition),grp.col2)[,2]
+  levels(pca.col2) <- as.vector(pca.col2)
+
+  
+rarefy.plot2 <- ggplot()+
+  geom_line(mapping=aes(x=as.numeric(as.character(rarefy.df2[,1])), y=as.numeric(as.character(rarefy.df2[,2])),group=rarefy.df2[,3],color=rarefy.df2[,4]))+
+  #geom_point(mapping=aes(x=as.numeric(as.character(rarefy.df[,1])), y=as.numeric(as.character(rarefy.df[,2])),group=rarefy.df[,3],color=rarefy.df[,4]))+
+  geom_point(mapping=aes(x=as.numeric(as.character(rarefy.points.df2[,1])), y=as.numeric(as.character(rarefy.points.df2[,2])),group=rarefy.points.df2[,3],color=rarefy.points.df2[,4]),size = 3)+
+  guides(colour = F,shape = F)+
+  scale_color_manual(values = levels(pca.col2))+
+  labs(title = "B",x="Reads mapping to host genes", y="Host Genes detected", color = "Sample") + #xlim(0,1000000)+
+  theme_bw()
+
+pdf(paste0(output_dir,"/Figure 1.pdf"), paper = "a4r", width = 0, height = 0)
+ggarrange(ggarrange(rarefy.plot,rarefy.plot2,nrow = 2,align = "v"),ggarrange(bac,host,burden,nrow=3,ncol=1, align = "v"), nrow =1 ,ncol = 2, align = "v")
+dev.off()
+
+```
+
+
+#Figure 2
+```{r}
+counts.path <- paste0(input_dir,"/Core_counts.txt") 
+counts.path2 <- paste0(input_dir,"/Core_counts_with_invitro.txt") 
+groups.path <- paste0(input_dir,"/Core_design.txt")  
+groups.path2 <- paste0(input_dir,"/Core_design_with_invitro.txt")  
+comparisons <- c("Blood_vs_Naso","Heart_vs_Naso","Lung_vs_Naso","Kidney_vs_Naso")
+
+counts <- read.delim(counts.path, header = T, row.names = 1)
+counts2 <- read.delim(counts.path2, header = T, row.names = 1)
+design <- read.delim(groups.path, header = T)
+design2 <- read.delim(groups.path2, header = T)
+
+#Aquiring colors 
+grp.col <- design[,ncol(design)-1]
+grp.pch <- design[,ncol(design)]
+colSums(counts)
+sort(colSums(counts))
+colnames(counts)
+
+grp.col2 <- design2[,ncol(design2)-1]
+grp.pch2 <- design2[,ncol(design2)]
+colSums(counts2)
+sort(colSums(counts2))
+colnames(counts2)
+
+#Normalization
+if (length(colnames(design)) > 4) {
+  dds <- DESeqDataSetFromMatrix(countData = floor(counts), colData = design, design = ~ donor + condition )
+} else {
+  dds <- DESeqDataSetFromMatrix(countData = counts, colData = design, design = ~ condition )
+}
+dds <- estimateSizeFactors(dds)
+dds <- estimateDispersions(dds)
+
+counts.vsd <- as.data.frame(getVarianceStabilizedData(dds))
+
+if (length(colnames(design2)) > 4) {
+  dds2 <- DESeqDataSetFromMatrix(countData = floor(counts2), colData = design2, design = ~ donor + condition )
+} else {
+  dds2 <- DESeqDataSetFromMatrix(countData = counts2, colData = design2, design = ~ condition )
+}
+dds2 <- estimateSizeFactors(dds2)
+dds2 <- estimateDispersions(dds2)
+
+counts.vsd2 <- as.data.frame(getVarianceStabilizedData(dds2))
+
+#write.table(counts.vsd2, file = paste0(output_dir,"/","Vstspn.txt"), append = F, row.names = T,sep = "\t")
+
+pca <- prcomp(t(counts.vsd))
+df_out <- as.data.frame(pca$x)
+percentage <- round(pca$sdev^2 / sum(pca$sdev^2) * 100, 2)
+percentage <- paste( colnames(df_out), "(", paste(as.character(percentage), "% )", sep="") )
+
+if("donor" %in% colnames(design)) {
+  pca.col <- unique(cbind(as.data.frame(design$condition),grp.col))[,2]
+  pca.col <- factor(grp.col , levels = as.vector(pca.col))
+  pca.pch <- unique(cbind(as.data.frame(design$condition),grp.pch))[,2]
+  pca.shape <- design$donor
+  shp.text <- "Strains"
+} else {
+  pca.col <- unique(cbind(as.data.frame(design$condition),grp.col))[,2]
+  levels(pca.col) <- as.vector(pca.col)
+  pca.pch <- unique(cbind(design$condition,grp.pch))[,2]
+  pca.shape <- design$condition 
+  levels(pca.shape) <- unique(as.vector(pca.shape))
+  shp.text <- "Samples"
+}
+pca.plot <- ggplot(df_out, aes(x = PC1, y = PC2)) + geom_point(aes(color = design$condition,size =1 ,                                                                   shape=factor(as.factor(gsub("X","",pca.shape)), levels = gsub("X","",levels(pca.shape)))),show.legend = TRUE) +scale_shape_identity()+ labs(title = "A", size = "Samples",                                                                                                                                       color = "Samples", shape=shp.text , x=percentage[1] , y=percentage[2])	+ 
+  guides(colour = guide_legend(ncol = 1)) + 
+  scale_color_manual(values = levels(pca.col)) +scale_shape_manual(values = pca.pch) + scale_size(guide = "none") + theme_bw()
+
+print(pca.plot)
+
+pca2 <- prcomp(t(counts.vsd2))
+df_out2 <- as.data.frame(pca2$x)
+percentage2 <- round(pca2$sdev^2 / sum(pca2$sdev^2) * 100, 2)
+percentage2 <- paste( colnames(df_out2), "(", paste(as.character(percentage2), "% )", sep="") )
+
+if("donor" %in% colnames(design2)) {
+  pca.col2 <- unique(cbind(as.data.frame(design2$condition),grp.col2))[,2]
+  pca.col2 <- factor(grp.col2 , levels = as.vector(pca.col2))
+  pca.pch2 <- unique(cbind(as.data.frame(design2$condition),grp.pch2))[,2]
+  pca.shape2 <- design2$donor
+  shp.text2 <- "Strains"
+} else {
+  pca.col2 <- unique(cbind(as.data.frame(design2$condition),grp.col2))[,2]
+  levels(pca.col2) <- as.vector(pca.col2)
+  pca.pch2 <- unique(cbind(design2$condition,grp.pch2))[,2]
+  pca.shape2 <- design2$condition 
+  levels(pca.shape2) <- unique(as.vector(pca.shape2))
+  shp.text <- "Samples"
+}
+pca.plot2 <- ggplot(df_out2, aes(x = PC1, y = PC2)) + geom_point(aes(color = design2$condition,size = 1,
+                                                                    shape=factor(as.factor(gsub("X","",pca.shape2)), levels = gsub("X","",levels(pca.shape2)))),show.legend = TRUE) +scale_shape_identity()+ labs(title = "C", size = "Samples",                                                                                                                                         color = "Samples", shape=shp.text2 , x=percentage2[1] , y=percentage2[2])	+ 
+  guides(colour = guide_legend(ncol = 1, order = 1)) + 
+  scale_color_manual(values = levels(pca.col2)) +scale_shape_manual(values = pca.pch2) + scale_size(guide = "none") + theme_bw()
+print(pca.plot2)
+
+
+
+dendrogram <- as.data.frame(counts.vsd)
+colnames(dendrogram) <- gsub("X6A10", "6A10", colnames(dendrogram))
+colnames(dendrogram) <- gsub("_F", "_", colnames(dendrogram))
+head(dendrogram)
+dendrogram[is.na(dendrogram)]<-0
+result <- pvclust(dendrogram, method.dist="cor", method.hclust="average", nboot=10)
+
+structure <- get_dendro_structure(result)
+dendro.data <- get_dendro_data(result)
+bootstrap.positions <- get_dendro_bootstraps(dendro.data)
+
+points.df <- as.data.frame(cbind(seq(1,length(structure),1),
+                                 structure))
+
+if("donor" %in% colnames(design)) {
+dendrogroups <- design$condition[result$hclust$order]
+dendroshape <- design$donor[result$hclust$order]
+dendrocol<-unique(cbind(as.data.frame(paste0(design$donor[result$hclust$order],dendrogroups)),grp.col[result$hclust$order]))
+rownames(dendrocol) = dendrocol$dendrogroups
+#dendrocol <- levels(dendrocol[,2])
+dendrocol <- levels(factor(dendrocol[,2], levels = as.vector(unique(grp.col))))
+dendrosize <- colSums(counts)[result$hclust$order]
+dendropch <- grp.pch[result$hclust$order]
+dendropch<- unique(cbind(as.data.frame(design$donor),design$pch))[,2]
+} else {
+dendrogroups <- design$condition[result$hclust$order]
+dendroshape <- dendrogroups
+dendrocol<-unique(cbind(as.data.frame(dendrogroups),grp.col[result$hclust$order]))
+rownames(dendrocol) = dendrocol$dendrogroups
+dendrocol <- levels(dendrocol[levels(dendrogroups),][,2])
+dendrosize <- colSums(counts)[result$hclust$order]
+dendropch<-unique(cbind(as.data.frame(dendrogroups),grp.pch[result$hclust$order]))
+rownames(dendropch) = dendropch$dendrogroups
+dendropch <- dendropch[levels(dendrogroups),][,2]
+}
+
+dendrogram.plot <- ggdendrogram(hang.dendrogram(as.dendrogram(result$hclust)), theme_dendro = T)+
+  geom_point(aes(x=seq(1,length(structure)), y = structure, color = dendrogroups,size = 1,
+                 shape = dendroshape))+ 
+  labs(title = "B", x = "", y = "")+
+  scale_color_manual(values = dendrocol)+
+  scale_shape_manual(values = c(19,19,19))+ 
+  guides(colour = guide_legend(ncol = 1))+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust = 1, size = 7), legend.position = "none",
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+for(i in 1:length(result$edges$bp)){
+  text <- round(result$edges$bp[i] * 100,0)
+  dendrogram.plot <- dendrogram.plot + annotate("text", label = text, x=bootstrap.positions[i,1] + 0.4, y=bootstrap.positions[i,2] + 0.01, size = 2)
+}
+
+print(dendrogram.plot)
+
+
+
+dendrogram2 <- as.data.frame(counts.vsd2)
+colnames(dendrogram2) <- gsub("X6A10", "6A10", colnames(dendrogram2))
+colnames(dendrogram2) <- gsub("_F", "_", colnames(dendrogram2))
+head(dendrogram2)
+dendrogram2[is.na(dendrogram2)]<-0
+result2 <- pvclust(dendrogram2, method.dist="cor", method.hclust="average", nboot=10)
+
+structure2 <- get_dendro_structure(result2)
+dendro.data2 <- get_dendro_data(result2)
+bootstrap.positions2 <- get_dendro_bootstraps(dendro.data2)
+
+points.df2 <- as.data.frame(cbind(seq(1,length(structure2),1),
+                                 structure2))
+
+if("donor" %in% colnames(design2)) {
+dendrogroups2 <- design2$condition[result2$hclust$order]
+dendroshape2 <- design2$donor[result2$hclust$order]
+dendrocol2<-unique(cbind(as.data.frame(paste0(design2$donor[result2$hclust$order],dendrogroups2)),grp.col2[result2$hclust$order]))
+rownames(dendrocol2) = dendrocol2$dendrogroups2
+dendrocol2 <- levels(factor(dendrocol2[,2], levels = as.vector(unique(grp.col2))))
+dendrosize2 <- colSums(counts2)[result2$hclust$order]
+dendropch2 <- grp.pch2[result2$hclust$order]
+dendropch2<- unique(cbind(as.data.frame(design2$donor),design2$pch))[,2]
+} else {
+dendrogroups2 <- design2$condition[result2$hclust$order]
+dendroshape2 <- dendrogroups2
+dendrocol2<-unique(cbind(as.data.frame(dendrogroups2),grp.col2[result2$hclust$order]))
+rownames(dendrocol2) = dendrocol2$dendrogroups2
+dendrocol2 <- levels(dendrocol2[levels(dendrogroups2),][,2])
+dendrosize2 <- colSums(counts2)[result2$hclust$order]
+dendropch2<-unique(cbind(as.data.frame(dendrogroups2),grp.pch2[result2$hclust$order]))
+rownames(dendropch2) = dendropch$dendrogroups2
+dendropch2 <- dendropch2[levels(dendrogroups2),][,2]
+}
+
+dendrogram.plot2 <- ggdendrogram(hang.dendrogram(as.dendrogram(result2$hclust)), theme_dendro = T)+
+  geom_point(aes(x=seq(1,length(structure2)), y = structure2, color = dendrogroups2, size = 1,
+                 #size = dendrosize2 ,
+                 shape = dendroshape2))+
+  labs(title = "D", x = "", y = "")+
+  scale_color_manual(values = dendrocol2)+
+  scale_shape_manual(values = c(19,19,19))+ #dendropch2
+  guides(colour = guide_legend(ncol = 1))+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust = 1, size = 7),legend.position = "none",
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+for(i in 1:length(result2$edges$bp)){
+  text <- round(result2$edges$bp[i] * 100,0)
+  dendrogram.plot2 <- dendrogram.plot2 + annotate("text", label = text, x=bootstrap.positions2[i,1] + 0.4, y=bootstrap.positions2[i,2] + 0.01, size = 2)
+}
+
+print(dendrogram.plot2)
+
+
+pdf(paste0(output_dir,'/Figure 2.pdf'), paper = "a4r", width = 0, height = 0)  ## Device with dimensions of A4 paper
+grid.arrange(pca.plot, dendrogram.plot,pca.plot2,dendrogram.plot2, ncol = 2)
+dev.off()
+```
+
+
+#Figure 3
+
+
+```{r}
+counts.path <- paste0(input_dir,"/Host_counts.txt")
+groups.path <- paste0(input_dir,"/Host_design.txt")
+comparisons <- c("D39_Inf_Blood_vs_Uninf_Blood","D39_Inf_Kidney_vs_Uninf_Kidney","D39_Inf_Lung_vs_Uninf_Lung","D39_Inf_Naso_vs_Uninf_Naso","TIGR4_Inf_Blood_vs_Uninf_Blood","TIGR4_Inf_Heart_vs_Uninf_Heart","TIGR4_Inf_Kidney_vs_Uninf_Kidney","TIGR4_Inf_Lung_vs_Uninf_Lung","TIGR4_Inf_Naso_vs_Uninf_Naso","6A10_Inf_Blood_vs_Uninf_Blood","6A10_Inf_Lung_vs_Uninf_Lung","6A10_Inf_Naso_vs_Uninf_Naso")
+
+counts <- read.delim(counts.path, header = T, row.names = 1)
+design <- read.delim(groups.path, header = T)
+
+#Aquiring colors 
+grp.col <- design[,ncol(design)-1]
+grp.pch <- design[,ncol(design)]
+colSums(counts)
+sort(colSums(counts))
+colnames(counts)
+
+#Normalization
+if (length(colnames(design)) > 4) {
+  dds <- DESeqDataSetFromMatrix(countData = floor(counts), colData = design, design = ~ donor + condition )
+} else {
+  dds <- DESeqDataSetFromMatrix(countData = counts, colData = design, design = ~ condition )
+}
+dds <- estimateSizeFactors(dds)
+dds <- estimateDispersions(dds)
+
+counts.vsd <- as.data.frame(getVarianceStabilizedData(dds))
+
+#write.table(counts.vsd, file = paste0(output_dir,"/","Vstmus.txt"), append = F, row.names = T,sep = "\t")
+
+pca <- prcomp(t(counts.vsd))
+df_out <- as.data.frame(pca$x)
+percentage <- round(pca$sdev^2 / sum(pca$sdev^2) * 100, 2)
+percentage <- paste( colnames(df_out), "(", paste(as.character(percentage), "% )", sep="") )
+
+if("donor" %in% colnames(design)) {
+  pca.col <- unique(cbind(as.data.frame(design$condition),grp.col))[,2]
+  pca.col <- factor(grp.col , levels = as.vector(pca.col))
+  pca.pch <- unique(cbind(as.data.frame(design$condition),grp.pch))[,2]
+  pca.shape <- design$donor
+  shp.text <- "Strains"
+} else {
+  pca.groups <- factor(design$condition, levels = unique(as.vector(design$condition))) 
+  pca.col <- unique(cbind(as.data.frame(design$condition),grp.col))[,2]
+  pca.pch <- unique(cbind(design$condition,grp.pch))[,2]
+  pca.shape <- pca.groups
+  levels(pca.shape) <- unique(as.vector(pca.shape))
+  shp.text <- "Samples"
+}
+
+newpgrps <- gsub(".*_Inf", "Infected", design$condition)
+newpgrps <- factor(gsub("Uninf_", "Uninfected_", newpgrps), levels = unique(gsub("Uninf_", "Uninfected_", newpgrps)))
+
+pca.plot <- ggplot(df_out, aes(x = PC1, y = PC2)) + geom_point(aes(color = newpgrps,size = 1,
+                                                                    shape= gsub("_.*", "", design$condition)), #pca.shape),
+                                                               show.legend = TRUE) +scale_shape_identity()+ labs(title = "A",                                                                                                                                       color = "Samples", shape="Strains" , x=percentage[1] , y=percentage[2])	+ 
+  guides(colour = guide_legend(ncol = 1,order = 1,title.theme = element_text(size =7),label.theme = element_text(size =7)), 
+         shape = guide_legend(ncol = 1,order = 2,title.theme = element_text(size =7),label.theme = element_text(size =7))) + 
+  scale_color_manual(values = levels(factor(pca.col, levels = unique(as.vector(pca.col)))))+ #as.vector(pca.col)
+  scale_shape_manual(values = pca.pch) + scale_size(guide = "none") + theme_bw() + theme(legend.spacing.y = unit(0.01,"cm"))
+
+print(pca.plot)
+
+
+
+dendrogram <- as.data.frame(counts.vsd)
+colnames(dendrogram) <- gsub("X6A10", "6A10", colnames(dendrogram))
+colnames(dendrogram) <- gsub("_F", "_", colnames(dendrogram))
+head(dendrogram)
+dendrogram[is.na(dendrogram)]<-0
+result <- pvclust(dendrogram, method.dist="cor", method.hclust="average", nboot=10)
+
+structure <- get_dendro_structure(result)
+dendro.data <- get_dendro_data(result)
+bootstrap.positions <- get_dendro_bootstraps(dendro.data)
+
+points.df <- as.data.frame(cbind(seq(1,length(structure),1),
+                                 structure))
+
+if("donor" %in% colnames(design)) {
+dendrogroups <- design$condition[result$hclust$order]
+dendroshape <- design$donor[result$hclust$order]
+dendrocol<-unique(cbind(as.data.frame(paste0(design$donor[result$hclust$order],dendrogroups)),grp.col[result$hclust$order]))
+rownames(dendrocol) = dendrocol$dendrogroups
+dendrocol <- levels(factor(dendrocol[,2], levels = as.vector(unique(grp.col))))
+dendrosize <- colSums(counts)[result$hclust$order]
+dendropch <- grp.pch[result$hclust$order]
+dendropch<- unique(cbind(as.data.frame(design$donor),design$pch))[,2]
+} else {
+dendrogroups <- pca.groups[result$hclust$order] 
+dendroshape <- dendrogroups
+dendrocol<-unique(cbind(as.data.frame(dendrogroups),grp.col[result$hclust$order]))
+rownames(dendrocol) = dendrocol$dendrogroups
+dendrocol <- as.vector(dendrocol$`grp.col[result$hclust$order]`)
+dendrosize <- colSums(counts)[result$hclust$order]
+dendropch<-unique(cbind(as.data.frame(dendrogroups),grp.pch[result$hclust$order]))
+rownames(dendropch) = dendropch$dendrogroups
+dendropch <- dendropch[levels(dendrogroups),][,2]
+}
+
+newddgrps <- gsub(".*_Inf", "Infected", dendrogroups)
+newddgrps <- factor(gsub(".*_Uninf", "Uninfected", newddgrps), levels = unique(gsub(".*_Uninf", "Uninfected", newddgrps)))
+
+
+dendrogram.plot <- ggdendrogram(hang.dendrogram(as.dendrogram(result$hclust)), theme_dendro = T)+
+  geom_point(aes(x=seq(1,length(structure)), y = structure, color = newddgrps, size =2 ,
+                 shape = gsub("_.*", "", dendroshape)))+
+  labs(title = "B", x = "", y = "", color = "Samples", 
+       shape = "Strains")+ scale_color_manual(values = unique(dendrocol))+
+  scale_shape_manual(values = rep(19,length(dendropch)))+ #dendropch)+
+  guides(colour = guide_legend(ncol = 1))+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust = 1, size = 7), legend.position = "none",
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+for(i in 1:length(result$edges$bp)){
+  text <- round(result$edges$bp[i] * 100,0)
+  dendrogram.plot <- dendrogram.plot + annotate("text", label = text, x=bootstrap.positions[i,1] + 0.4, y=bootstrap.positions[i,2] + 0.01, size = 2)
+}
+
+print(dendrogram.plot)
+
+
+dpch <- c(15,15,17,17,18,18,16,16,18,18,18,16,16,16,17,17,17,18,18,18,16,16,15,15,17,17,18,18,16,16,15,15,17,17,18,18,16,16)
+
+png(filename = paste0(output_dir,"dpca.png"),width = 1920, height = 1080, units = "px")
+scatterplot3d(pca$x[,c(1,3,2)], pch = dpch, type="h", cex.axis = 2, cex.symbols = 4, cex.lab = 4,mar=c(6,6,4,4)+0.1,
+              color=grp.col)
+dev.off()
+
+img2<- rasterGrob(readPNG("C:/Users/adoni/Desktop/PERCK/Cell figures/dpca.png", native = FALSE),interpolate = FALSE)
+
+pdf(paste0(output_dir,'Figure 3.pdf'), paper = "a4r", width = 0, height = 0)  ## Device with dimensions of A4 paper
+grid.arrange(arrangeGrob(pca.plot,img2, ncol = 2), dendrogram.plot,nrow = 2)
+dev.off()
+
+
+```
+
+
+#figure 4
+```{r}
+counts.path <- paste0(input_dir,"/Host_counts.txt")
+groups.path <- paste0(input_dir,"/Host_design.txt")  #Colours only in the LAST column.
+comparisons <- c("D39_Inf_Blood_vs_Uninf_Blood","D39_Inf_Kidney_vs_Uninf_Kidney","D39_Inf_Lung_vs_Uninf_Lung","D39_Inf_Naso_vs_Uninf_Naso","TIGR4_Inf_Blood_vs_Uninf_Blood","TIGR4_Inf_Heart_vs_Uninf_Heart","TIGR4_Inf_Kidney_vs_Uninf_Kidney","TIGR4_Inf_Lung_vs_Uninf_Lung","TIGR4_Inf_Naso_vs_Uninf_Naso","6A10_Inf_Blood_vs_Uninf_Blood","6A10_Inf_Lung_vs_Uninf_Lung","6A10_Inf_Naso_vs_Uninf_Naso")
+
+counts <- read.delim(counts.path, header = T, row.names = 1)
+design <- read.delim(groups.path, header = T)
+
+#Aquiring colors 
+grp.col <- design[,ncol(design)-1]
+grp.pch <- design[,ncol(design)]
+colSums(counts)
+sort(colSums(counts))
+colnames(counts)
+
+if (length(colnames(design)) > 4) {
+  dds <- DESeqDataSetFromMatrix(countData = floor(counts), colData = design, design = ~ donor + condition )
+} else {
+  dds <- DESeqDataSetFromMatrix(countData = counts, colData = design, design = ~ condition )
+}
+dds <- estimateSizeFactors(dds)
+dds <- estimateDispersions(dds)
+
+counts.vsd <- as.data.frame(getVarianceStabilizedData(dds))
+colnames(counts.vsd) <- gsub("X6A10", "6A10", colnames(counts.vsd))
+colnames(counts.vsd) <- gsub("_F", "_", colnames(counts.vsd))
+
+dds <- DESeq(dds, betaPrior = F)
+
+contrast.list <- data.frame(Contrast=comparisons)
+upset <- c()
+
+for (i in contrast.list$Contrast) {
+	pair <- as.data.frame(strsplit(as.character(i),'_vs_'))
+	DE.genes <- as.data.frame(results(dds, contrast=c("condition",as.character(pair[1,]),as.character(pair[2,])), independentFiltering = TRUE, alpha=0.05))
+	DE.genes <- na.omit(DE.genes)
+  heading<- paste(as.character(pair[1,])," vs ",as.character(pair[2,])," (Abs(LFC) > 1"," and FDR < 0.05",")", sep="")
+	DE.genes$Significant = as.factor(DE.genes$padj < 0.05 & abs(DE.genes$log2FoldChange) > 1)
+  Significant <- c(DE.genes$Significant)
+  vol.plot <- ggplot(data=DE.genes, aes(x=DE.genes$log2FoldChange, y = -log10(DE.genes$padj),colour=Significant)) + geom_point(alpha=0.5,size=1)+ 
+  xlim(c(-10, 10)) + ylim(c(0, 20)) + xlab("Log2 Fold Change (LFC)") + ylab("-log10 FDR") + labs(title=heading) + theme_bw()
+	#pdf(paste0(output_dir,"/",as.character(pair[1,]),"_vs_",as.character(pair[2,]),"_volcano_plot.pdf"),
+  #  height=5,
+  #  width=5)
+  #print(vol.plot)
+  #dev.off()
+  #print(vol.plot)
+  
+	DE.genes <- DE.genes[DE.genes$padj <= 0.05,]
+  #DE.genes <- DE.genes[abs(DE.genes$log2FoldChange) >=1,]
+
+	write.table(DE.genes, file = paste0(output_dir,"/",i,"_FDR_degenes.txt"), append = F, row.names = T,sep = "\t")
+	genes <- as.data.frame(c(rep_len(1,length.out = length(row.names(DE.genes)))),row.names = rownames(DE.genes) )
+	upset <- merge.all(upset,genes)
+}
+
+
+colnames(upset) <- as.vector(contrast.list$Contrast)
+upset[is.na(upset)]<-0
+
+write.table(upset, file = paste0(output_dir,"/","Upset_FDR_GeneMatrix.txt"), append = F, row.names = T,sep = "\t")
+
+upset.plot.host <- upset(upset, queries = list(list(query = intersects, params = list("D39_Inf_Blood_vs_Uninf_Blood","TIGR4_Inf_Blood_vs_Uninf_Blood","6A10_Inf_Blood_vs_Uninf_Blood"), color = "red", active = T), list(query = intersects, params = list("TIGR4_Inf_Heart_vs_Uninf_Heart"), color = "orange", active = T), list(query = intersects, params = list("TIGR4_Inf_Lung_vs_Uninf_Lung", "D39_Inf_Lung_vs_Uninf_Lung","6A10_Inf_Lung_vs_Uninf_Lung"), color = "blue", active = T),list(query = intersects, params = list("TIGR4_Inf_Kidney_vs_Uninf_Kidney","D39_Inf_Kidney_vs_Uninf_Kidney"), color = "black", active = T), list(query = intersects, params = list("D39_Inf_Blood_vs_Uninf_Blood","D39_Inf_Lung_vs_Uninf_Lung","TIGR4_Inf_Blood_vs_Uninf_Blood","TIGR4_Inf_Heart_vs_Uninf_Heart","TIGR4_Inf_Lung_vs_Uninf_Lung","6A10_Inf_Blood_vs_Uninf_Blood","6A10_Inf_Lung_vs_Uninf_Lung","D39_Inf_Kidney_vs_Uninf_Kidney","TIGR4_Inf_Kidney_vs_Uninf_Kidney"), color = "green", active = T)), sets = colnames(upset), sets.bar.color = "gold",main.bar.color = "grey50",matrix.color = "gray50", point.size = 4,text.scale = 4,  order.by = "freq",nintersects = 20) 
+
+class(upset.plot.host)
+
+png(filename = paste0(output_dir,"hostupset.png"),width = 1920, height = 1200, units = "px")
+print(upset.plot.host)
+dev.off()
+hupset.plot <- rasterGrob(readPNG(paste0(output_dir,"/hostupset.png"), native = FALSE),interpolate = FALSE)
+
+
+bld <- c("D39_Inf_Blood_vs_Uninf_Blood","TIGR4_Inf_Blood_vs_Uninf_Blood","6A10_Inf_Blood_vs_Uninf_Blood")
+hrt <- c("TIGR4_Inf_Heart_vs_Uninf_Heart")
+lng <- c("TIGR4_Inf_Lung_vs_Uninf_Lung", "D39_Inf_Lung_vs_Uninf_Lung","6A10_Inf_Lung_vs_Uninf_Lung")
+kid <- c("D39_Inf_Kidney_vs_Uninf_Kidney","TIGR4_Inf_Kidney_vs_Uninf_Kidney")
+all <- c("D39_Inf_Blood_vs_Uninf_Blood","D39_Inf_Lung_vs_Uninf_Lung","TIGR4_Inf_Blood_vs_Uninf_Blood","TIGR4_Inf_Heart_vs_Uninf_Heart","TIGR4_Inf_Lung_vs_Uninf_Lung","6A10_Inf_Blood_vs_Uninf_Blood","6A10_Inf_Lung_vs_Uninf_Lung","D39_Inf_Kidney_vs_Uninf_Kidney","TIGR4_Inf_Kidney_vs_Uninf_Kidney")
+
+
+colsep <- get_heatmap_separators(as.character(design$condition))
+hmcol <- colorRampPalette(c("navyblue","white","firebrick3"))(40)
+blood <- query_upset(set = upset, queries = bld)
+	write.table(blood, file = paste0(output_dir,"/","blood_FDR_degenes.txt"), append = F, row.names = T,sep = "\t")
+png(filename = paste0(output_dir,"hostblood.png"),width = 1720, height = 1720, units = "px")
+heatmap.2(t(scale(t(counts.vsd[rownames(blood),1:8]))),
+          keysize=1,
+          margins = c(24,10),
+          breaks = seq(-2, 2, 0.1), 
+          col=hmcol,
+          trace="none",
+          labRow=F,
+          Rowv = T,
+          Colv = F,
+          ColSideColors=as.vector(grp.col)[1:8],
+          rowsep = F,
+          dendrogram = "none",
+          key.par=list(mar=c(3.5,0,3,3.4),cex = 2),lmat=rbind(c(9,5 ,4),c(8,1,7), c(6, 2, 3)), lhei=c(1.5,0.3, 5), lwid=c(1, 10, 1),key.title = "Z-Score",key.xlab = NA,key.ylab = NA, 
+          cexCol = 4,
+          cexRow = 0.1,
+          srtCol=45)
+dev.off()
+hm.plot1 <- rasterGrob(readPNG(paste0(output_dir,"/hostblood.png"), native = FALSE),interpolate = FALSE)
+length(seq(-2, 2, 0.1))
+
+heart <- query_upset(set = upset, queries = hrt)
+	write.table(heart, file = paste0(output_dir,"/","heart_FDR_degenes.txt"), append = F, row.names = T,sep = "\t")
+png(filename = paste0(output_dir,"hostheart.png"),width = 1720, height = 1720, units = "px")
+heatmap.2(t(scale(t(counts.vsd[rownames(heart),9:14]))),
+          keysize=1,
+          margins = c(24,10),
+          breaks = seq(-2, 2, 0.1), 
+          col=hmcol,
+          trace="none",
+          labRow=F,
+          Rowv = T,
+          Colv = F,
+          ColSideColors=as.vector(grp.col)[9:14],
+          rowsep = F,
+          dendrogram = "none",
+          key.par=list(mar=c(3.5,0,3,3.4),cex = 2),lmat=rbind(c(9,5 ,4),c(8,1,7), c(6, 2, 3)), lhei=c(1.5,0.3, 5), lwid=c(1, 10, 1),key.title = "Z-Score",key.xlab = NA,key.ylab = NA, 
+          cexCol = 4,
+          cexRow = 0.1,
+          srtCol=45)
+dev.off()
+hm.plot2 <- rasterGrob(readPNG(paste0(output_dir,"/hostheart.png"), native = FALSE),interpolate = FALSE)
+
+
+
+
+lung <- query_upset(set = upset, queries = lng)
+	write.table(lung, file = paste0(output_dir,"/","lung_FDR_degenes.txt"), append = F, row.names = T,sep = "\t")
+png(filename = paste0(output_dir,"hostlung.png"),width = 1720, height = 1720, units = "px")
+heatmap.2(t(scale(t(counts.vsd[rownames(lung),23:30]))),
+          keysize=1,
+          margins = c(24,10),
+          breaks = seq(-2, 2, 0.1), 
+          col=hmcol,
+          trace="none",
+          labRow=F,
+          Rowv = T,
+          Colv = F,
+          ColSideColors=as.vector(grp.col)[23:30],
+          rowsep = F,
+          dendrogram = "none",
+          key.par=list(mar=c(3.5,0,3,3.4),cex = 2),lmat=rbind(c(9,5 ,4),c(8,1,7), c(6, 2, 3)), lhei=c(1.5,0.3, 5), lwid=c(1, 10, 1),key.title = "Z-Score",key.xlab = NA,key.ylab = NA, 
+          cexCol = 4,
+          cexRow = 0.1,
+          srtCol=45)
+dev.off()
+hm.plot3 <- rasterGrob(readPNG(paste0(output_dir,"/hostlung.png"), native = FALSE),interpolate = FALSE)
+
+kidney <- query_upset(set = upset, queries = kid)
+	write.table(kidney, file = paste0(output_dir,"/","kidney_FDR_degenes.txt"), append = F, row.names = T,sep = "\t")
+png(filename = paste0(output_dir,"hostkid.png"),width = 1720, height = 1720, units = "px")
+heatmap.2(t(scale(t(counts.vsd[rownames(kidney),15:22]))),
+          keysize=1,
+          margins = c(24,10),
+          breaks = seq(-2, 2, 0.1), 
+          col=hmcol,
+          trace="none",
+          labRow=F,
+          Rowv = T,
+          Colv = F,
+          ColSideColors=as.vector(grp.col)[15:22],
+          rowsep = F,
+          dendrogram = "none",
+          key.par=list(mar=c(3.5,0,3,3.4),cex = 2),lmat=rbind(c(9,5 ,4),c(8,1,7), c(6, 2, 3)), lhei=c(1.5,0.3, 5), lwid=c(1, 10, 1),key.title = "Z-Score",key.xlab = NA,key.ylab = NA, 
+          cexCol = 4,
+          cexRow = 0.1,
+          srtCol=45)
+dev.off()
+hm.plot4 <- rasterGrob(readPNG(paste0(output_dir,"/hostkid.png"), native = FALSE),interpolate = FALSE)
+
+
+allorg <- query_upset(set = upset, queries = all)
+	write.table(allorg, file = paste0(output_dir,"/","allorg_FDR_degenes.txt"), append = F, row.names = T,sep = "\t")
+png(filename = paste0(output_dir,"hostall.png"),width = 1720, height = 1080, units = "px")
+heatmap.2(t(scale(t(counts.vsd[rownames(allorg),1:30]))),
+          keysize=1,
+          margins = c(20,10),
+          breaks = seq(-2, 2, 0.1), 
+          col=hmcol,
+          trace="none",
+          labRow=F,
+          Rowv = T,
+          Colv = F,
+          ColSideColors=as.vector(grp.col)[1:30],
+          rowsep = F,
+          dendrogram = "none",
+          key.par=list(mar=c(3.5,0,3,3.4),cex = 2),lmat=rbind(c(9,5 ,4),c(8,1,7), c(6, 2, 3)), lhei=c(1.5,0.3, 5), lwid=c(1, 10, 1),key.title = "Z-Score",key.xlab = NA, key.ylab = NA, 
+          cexCol = 5,
+          cexRow = 0.1,
+          srtCol=45)
+dev.off()
+hm.plot5 <- rasterGrob(readPNG(paste0(output_dir,"/hostall.png"), native = FALSE),interpolate = FALSE)
+
+
+
+#Bac
+
+
+counts.path <- paste0(input_dir,"/Core_counts.txt")
+groups.path <- paste0(input_dir,"/Core_design.txt")  
+comparisons <- c("Blood_vs_Naso","Heart_vs_Naso","Lung_vs_Naso","Kidney_vs_Naso")
+
+
+counts <- read.delim(counts.path, header = T, row.names = 1)
+design <- read.delim(groups.path, header = T)
+if (kegg.map != "") {
+ ltmap <- read.delim(kegg.map, header = F, row.names = 1) 
+}
+#Aquiring colors 
+grp.col <- design[,ncol(design)-1]
+grp.pch <- design[,ncol(design)]
+colSums(counts)
+sort(colSums(counts))
+colnames(counts)
+
+if (length(colnames(design)) > 4) {
+  dds <- DESeqDataSetFromMatrix(countData = floor(counts), colData = design, design = ~ donor + condition )
+} else {
+  dds <- DESeqDataSetFromMatrix(countData = counts, colData = design, design = ~ condition )
+}
+dds <- estimateSizeFactors(dds)
+dds <- estimateDispersions(dds)
+
+counts.vsd2 <- as.data.frame(getVarianceStabilizedData(dds))
+colnames(counts.vsd2) <- gsub("X6A10", "6A10", colnames(counts.vsd2))
+colnames(counts.vsd2) <- gsub("_F", "_", colnames(counts.vsd2))
+
+dds <- DESeq(dds, betaPrior = F)
+
+contrast.list <- data.frame(Contrast=comparisons)
+upset <- c()
+
+for (i in contrast.list$Contrast) {
+	pair <- as.data.frame(strsplit(as.character(i),'_vs_'))
+	DE.genes <- as.data.frame(results(dds, contrast=c("condition",as.character(pair[1,]),as.character(pair[2,])), independentFiltering = TRUE, alpha=0.05))
+	DE.genes <- na.omit(DE.genes)
+  heading<- paste(as.character(pair[1,])," vs ",as.character(pair[2,])," (Abs(LFC) > 1"," and FDR < 0.05",")", sep="")
+	DE.genes$Significant = as.factor(DE.genes$padj < 0.05 & abs(DE.genes$log2FoldChange) > 1)
+  Significant <- c(DE.genes$Significant)
+  vol.plot <- ggplot(data=DE.genes, aes(x=DE.genes$log2FoldChange, y = -log10(DE.genes$padj),colour=Significant)) + geom_point(alpha=0.5,size=1)+ 
+  xlim(c(-10, 10)) + ylim(c(0, 20)) + xlab("Log2 Fold Change (LFC)") + ylab("-log10 FDR") + labs(title=heading) + theme_bw()
+	#pdf(paste0(output_dir,"/",as.character(pair[1,]),"_vs_",as.character(pair[2,]),"_volcano_plot.pdf"),
+  #  height=5,
+  #  width=5)
+  #print(vol.plot)
+  #dev.off()
+  #print(vol.plot)
+  
+	DE.genes <- DE.genes[DE.genes$padj <= 0.05,]
+  #DE.genes <- DE.genes[abs(DE.genes$log2FoldChange) >=1,]
+
+	write.table(DE.genes, file = paste0(output_dir,"/",i,"_FDR_degenes.txt"), append = F, row.names = T,sep = "\t")
+	genes <- as.data.frame(c(rep_len(1,length.out = length(row.names(DE.genes)))),row.names = rownames(DE.genes) )
+	upset <- merge.all(upset,genes)
+}
+
+
+colnames(upset) <- as.vector(contrast.list$Contrast)
+upset[is.na(upset)]<-0
+
+write.table(upset, file = paste0(output_dir,"/","Upset_FDR_GeneMatrix.txt"), append = F, row.names = T,sep = "\t")
+
+upset.plot.bac <- upset(upset, queries = list(list(query = intersects, params = list("Blood_vs_Naso","Heart_vs_Naso","Lung_vs_Naso","Kidney_vs_Naso"), color = "green", active = T)), sets = colnames(upset), sets.bar.color = c("black","red","blue","orange"),main.bar.color = "grey50",matrix.color = "gray50", point.size = 4,text.scale = 4,  order.by = "freq", nintersects = 10)
+print(upset.plot.bac)
+
+png(filename = paste0(output_dir,"bacupset.png"),width = 1920, height = 1080, units = "px")
+print(upset.plot.bac)
+dev.off()
+bupset.plot <- rasterGrob(readPNG(paste0(output_dir,"/bacupset.png"), native = FALSE),interpolate = FALSE)
+
+
+all2 <- c("Blood_vs_Naso","Heart_vs_Naso","Lung_vs_Naso","Kidney_vs_Naso")
+
+
+colsep <- get_heatmap_separators(as.character(design$condition))
+hmcol <- colorRampPalette(c("navyblue","white","firebrick3"))(40)
+
+file <- Sys.glob(file.path(output_dir, "Blood_vs_Naso_FDR_degenes.txt"))
+blood <- read.delim(file, header = T, row.names = 1)
+
+png(filename = paste0(output_dir,"bacblood.png"),width = 1720, height = 1720, units = "px")
+heatmap.2(t(scale(t(counts.vsd2[rownames(blood),c(1:6,18:21)]))),
+          keysize=1,
+          margins = c(24,10),
+          breaks = seq(-2, 2, 0.1), 
+          col=hmcol,
+          trace="none",
+          labRow=F,
+          Rowv = T,
+          Colv = F,
+          ColSideColors=as.vector(grp.col)[c(1:6,18:21)],
+          rowsep = F,
+          dendrogram = "none",
+          key.par=list(mar=c(3.5,0,3,3.4),cex = 2),lmat=rbind(c(9,5 ,4),c(8,1,7), c(6, 2, 3)), lhei=c(1.5,0.3, 5), lwid=c(1, 10, 1),key.title = "Z-Score",key.xlab = NA,key.ylab = NA, 
+          cexCol = 4,
+          cexRow = 0.1,
+          srtCol=45)
+dev.off()
+hm.plot6 <- rasterGrob(readPNG(paste0(output_dir,"/bacblood.png"), native = FALSE),interpolate = FALSE)
+
+file <- Sys.glob(file.path(output_dir, "Heart_vs_Naso_FDR_degenes.txt"))
+heart <- read.delim(file, header = T, row.names = 1)
+
+png(filename = paste0(output_dir,"bacheart.png"),width = 1720, height = 1720, units = "px")
+heatmap.2(t(scale(t(counts.vsd2[rownames(heart),c(7,8,18:21)]))),
+          keysize=1,
+          margins = c(24,10),
+          breaks = seq(-2, 2, 0.1), 
+          col=hmcol,
+          trace="none",
+          labRow=F,
+          Rowv = T,
+          Colv = F,
+          ColSideColors=as.vector(grp.col)[c(7,8,18:21)],
+          rowsep = F,
+          dendrogram = "none",
+          key.par=list(mar=c(3.5,0,3,3.4),cex = 2),lmat=rbind(c(9,5 ,4),c(8,1,7), c(6, 2, 3)), lhei=c(1.5,0.3, 5), lwid=c(1, 10, 1),key.title = "Z-Score",key.xlab = NA,key.ylab = NA, 
+          cexCol = 4,
+          cexRow = 0.1,
+          srtCol=45)
+dev.off()
+hm.plot7 <- rasterGrob(readPNG(paste0(output_dir,"/bacheart.png"), native = FALSE),interpolate = FALSE)
+
+
+file <- Sys.glob(file.path(output_dir, "Lung_vs_Naso_FDR_degenes.txt"))
+lung <- read.delim(file, header = T, row.names = 1)
+png(filename = paste0(output_dir,"baclung.png"),width = 1720, height = 1720, units = "px")
+heatmap.2(t(scale(t(counts.vsd2[rownames(lung),c(12:21)]))),
+          keysize=1,
+          margins = c(24,10),
+          breaks = seq(-2, 2, 0.1), 
+          col=hmcol,
+          trace="none",
+          labRow=F,
+          Rowv = T,
+          Colv = F,
+          ColSideColors=as.vector(grp.col)[c(12:21)],
+          rowsep = F,
+          dendrogram = "none",
+          key.par=list(mar=c(3.5,0,3,3.4),cex = 2),lmat=rbind(c(9,5 ,4),c(8,1,7), c(6, 2, 3)), lhei=c(1.5,0.3, 5), lwid=c(1, 10, 1),key.title = "Z-Score",key.xlab = NA,key.ylab = NA, 
+          cexCol = 4,
+          cexRow = 0.1,
+          srtCol=45)
+dev.off()
+hm.plot8 <- rasterGrob(readPNG(paste0(output_dir,"/baclung.png"), native = FALSE),interpolate = FALSE)
+
+file <- Sys.glob(file.path(output_dir, "Kidney_vs_Naso_FDR_degenes.txt"))
+kidney <- read.delim(file, header = T, row.names = 1)
+png(filename = paste0(output_dir,"backid.png"),width = 1720, height = 1720, units = "px")
+heatmap.2(t(scale(t(counts.vsd2[rownames(kidney),c(9:11,18:21)]))),
+          keysize=1,
+          margins = c(24,10),
+          breaks = seq(-2, 2, 0.1), 
+          col=hmcol,
+          trace="none",
+          labRow=F,
+          Rowv = T,
+          Colv = F,
+          ColSideColors=as.vector(grp.col)[c(9:11,18:21)],
+          rowsep = F,
+          dendrogram = "none",
+          key.par=list(mar=c(3.5,0,3,3.4),cex = 2),lmat=rbind(c(9,5 ,4),c(8,1,7), c(6, 2, 3)), lhei=c(1.5,0.3, 5), lwid=c(1, 10, 1),key.title = "Z-Score",key.xlab = NA,key.ylab = NA, 
+          cexCol = 4,
+          cexRow = 0.1,
+          srtCol=45)
+dev.off()
+hm.plot9 <- rasterGrob(readPNG(paste0(output_dir,"/backid.png"), native = FALSE),interpolate = FALSE)
+
+
+allorg2 <- query_upset(set = upset, queries = all2)
+png(filename = paste0(output_dir,"bacall.png"),width = 1720, height = 1080, units = "px")
+heatmap.2(t(scale(t(counts.vsd2[rownames(allorg2),]))),
+          keysize=1,
+          margins = c(20,10),
+          breaks = seq(-2, 2, 0.1), 
+          col=hmcol,
+          trace="none",
+          labRow=F,
+          Rowv = T,
+          Colv = F,
+          ColSideColors=as.vector(grp.col),
+          rowsep = F,
+          dendrogram = "none",
+          key.par=list(mar=c(3.5,0,3,3.4),cex = 2),lmat=rbind(c(9,5 ,4),c(8,1,7), c(6, 2, 3)), lhei=c(1.5,0.3, 5), lwid=c(1, 10, 1),key.title = "Z-Score",key.xlab = NA, key.ylab = NA, 
+          cexCol = 5,
+          cexRow = 0.1,
+          srtCol=45)
+dev.off()
+hm.plot10 <- rasterGrob(readPNG(paste0(output_dir,"/bacall.png"), native = FALSE),interpolate = FALSE)
+
+
+pdf(paste0(output_dir,'/Figure 4.pdf'), paper = "a4r", width = 0, height = 0)  ## Device with dimensions of A4 paper
+grid.arrange(arrangeGrob(as.grob(bupset.plot),hm.plot10, nrow = 1, ncol = 2), arrangeGrob(as.grob(hupset.plot),hm.plot5,nrow = 1, ncol = 2),nrow = 2, ncol =1)
+dev.off()
+
+pdf(paste0(output_dir,'/suppfig.pdf'), paper = "a4r", width = 0, height = 0)  ## Device with dimensions of A4 paper
+grid.arrange(arrangeGrob(hm.plot6,hm.plot7,hm.plot9,hm.plot8, nrow = 1, ncol = 4), arrangeGrob(hm.plot1,hm.plot2,hm.plot4,hm.plot3, nrow = 1, ncol = 4),nrow = 2, ncol =1)
+dev.off()
+
+```
+
+
+#Figure 5
+```{r}
+#Bac 
+
+counts.path <- paste0(input_dir,"/Core_counts.txt")
+groups.path <- paste0(input_dir,"/Core_design.txt") 
+comparisons <- c("Blood_vs_Naso","Heart_vs_Naso","Lung_vs_Naso","Kidney_vs_Naso")
+kegg.species <- "spn"
+kegg.map <- ""
+
+
+counts <- read.delim(counts.path, header = T, row.names = 1)
+design <- read.delim(groups.path, header = T)
+if (kegg.map != "") {
+ ltmap <- read.delim(kegg.map, header = F, row.names = 1) 
+}
+#Aquiring colors 
+grp.col <- design[,ncol(design)-1]
+grp.pch <- design[,ncol(design)]
+colSums(counts)
+sort(colSums(counts))
+colnames(counts)
+
+if (length(colnames(design)) > 4) {
+  dds <- DESeqDataSetFromMatrix(countData = floor(counts), colData = design, design = ~ donor + condition )
+} else {
+  dds <- DESeqDataSetFromMatrix(countData = counts, colData = design, design = ~ condition )
+}
+dds <- estimateSizeFactors(dds)
+dds <- estimateDispersions(dds)
+
+counts.vsd2 <- as.data.frame(getVarianceStabilizedData(dds))
+colnames(counts.vsd2) <- gsub("X6A10", "6A10", colnames(counts.vsd2))
+colnames(counts.vsd2) <- gsub("_F", "_", colnames(counts.vsd2))
+
+data2 <-counts.vsd2
+
+ceg.blood <- data2[,c("D39_Inf_Blood_1"   , "D39_Inf_Blood_2"  ,  "TIGR4_Inf_Blood_1" , "TIGR4_Inf_Blood_2" , "6A10_Inf_Blood_3"  , "6A10_Inf_Blood_7")]
+Blood <- rownames((ceg.blood[ order(rowMeans(ceg.blood), decreasing = T), ]))[1:100]
+
+ceg.lung <- data2[,c("D39_Inf_Lung_1"  ,   "D39_Inf_Lung_2"  ,   "TIGR4_Inf_Lung_3" ,  "TIGR4_Inf_Lung_5" ,  "6A10_Inf_Lung_3"  ,  "6A10_Inf_Lung_4")]
+Lung <- rownames(ceg.lung[ order(rowMeans(ceg.lung), decreasing = T), ])[1:100]
+
+ceg.naso <- data2[,c("TIGR4_Inf_Naso_1" , "TIGR4_Inf_Naso_2" ,  "6A10_Inf_Naso_1"  ,  "6A10_Inf_Naso_2")]
+Naso <- rownames(ceg.naso[ order(rowMeans(ceg.naso), decreasing = T), ])[1:100]
+
+ceg.kid <- data2[,c("TIGR4_Inf_Kidney_1", "TIGR4_Inf_Kidney_2", "TIGR4_Inf_Kidney_3")]
+Kid <- rownames(ceg.naso[ order(rowMeans(ceg.naso), decreasing = T), ])[1:100]
+
+ceg.heart <- data2[,c("TIGR4_Inf_Heart_3" , "TIGR4_Inf_Heart_4")]
+Heart <- rownames(ceg.naso[ order(rowMeans(ceg.naso), decreasing = T), ])[1:100]
+
+
+top100s <- data.frame(Blood=Blood,Lung=Lung,Nasopharnx=Naso,Kidney=Kid,Heart=Heart,row.names = NULL)
+write.table(top100s, file = paste0(output_dir,"/","Top100.txt"), append = F, row.names = F,sep = "\t")
+
+
+ceg.upset<- c()
+for (i in list(Blood,Lung,Naso,Heart,Kid)) {
+  genes <- c()
+  genes <- as.data.frame(c(rep_len(1,length.out = length(i))),row.names = i )
+	ceg.upset <- merge.all(ceg.upset,genes)
+  
+}
+colnames(ceg.upset) = c("Blood","Lung","Naso","Heart","Kid")
+ceg.upset[is.na(ceg.upset)]<-0
+ceg.upset.plot <- upset(ceg.upset, sets = colnames(ceg.upset), sets.bar.color = "orange", point.size = 4,text.scale = 4,
+             order.by = "freq")#, empty.intersections = "on")#, nintersects = NA)
+
+G_list <-query_upset(set = ceg.upset, queries = colnames(ceg.upset))
+
+cegdata <- data2[rownames(G_list),]
+
+png(filename = paste0(output_dir,"cegupset.png"),width = 1720, height = 1580, units = "px")
+print(ceg.upset.plot)
+dev.off()
+
+hmcol2 <- colorRampPalette(c("yellow2","orange2","firebrick2"))(75)
+png(filename = paste0(output_dir,"ceg52.png"),width = 1720, height = 1580, units = "px")
+heatmap.2(as.matrix(counts.vsd2[rownames(cegdata),]),
+          keysize=2,
+          margins = c(20,10),
+          col=hmcol2,
+          trace="none",
+          labRow=row.names(cegdata),
+          Rowv = F,
+          Colv = F,
+          ColSideColors=as.vector(grp.col),
+          rowsep = F,
+          dendrogram = "none",
+          key.par=list(mar=c(3.5,0,3,3.4), cex =2),lmat=rbind(c(9,5 ,4),c(8,1,7), c(6, 2, 3)), lhei=c(1.5,0.3, 5), lwid=c(1, 10, 1),key.title = "VST Normalized Count",key.xlab = NA,key.ylab = NA,  
+          cexCol = 3,
+          cexRow = 2.2,
+          colRow = c(rep("black",2),"red",rep("black",19),"red",rep("black",20),rep("red",5),rep("black",5)),
+          srtCol=45)
+dev.off()
+
+
+#Host stuff
+bhm.path <- paste0(input_dir,"/BloodUP.txt") 
+hhm.path <- paste0(input_dir,"/HeartUP.txt") 
+khm.path <- paste0(input_dir,"/KidUP.txt")  
+lhm.path <- paste0(input_dir,"/LungUP.txt")  
+ahm.path <- paste0(input_dir,"/CoreUP.txt")  
+
+bhm <- read.delim(bhm.path, header = T, row.names = 1)
+hhm <- read.delim(hhm.path, header = T, row.names = 1)
+khm <- read.delim(khm.path, header = T, row.names = 1)
+lhm <- read.delim(lhm.path, header = T, row.names = 1)
+ahm <- read.delim(ahm.path, header = T, row.names = 1)
+
+colnames(bhm) <- gsub("_FDR.*","",colnames(bhm))
+colnames(hhm) <- gsub("_FDR.*","",colnames(hhm))
+colnames(khm) <- gsub("_FDR.*","",colnames(khm))
+colnames(lhm) <- gsub("_FDR.*","",colnames(lhm))
+colnames(ahm) <- gsub("_FDR.*","",colnames(ahm))
+
+hmcol <- colorRampPalette(c("navyblue","white","darkorange1"))(100)
+
+bhm<-gsub("N/A", "0", as.matrix(bhm))
+bhm <- as.data.frame(bhm)
+bhm[,1]<-NULL
+bhm[] <- lapply(bhm, as.character)
+bhm[] <- lapply(bhm, as.numeric)
+bhm <- as.matrix(bhm)
+bhm <- bhm[rowSums(bhm)!=0,]
+bhm <- bhm[abs(rowMeans2(bhm))>=3,]
+ord <- hclust(d = dist(bhm))$order
+ord2 <- hclust(d = dist(t(bhm)))$order
+bhm <- bhm[ord,ord2]
+bhm <- melt(bhm)
+colnames(bhm) = c("y","x","z")
+png(filename = paste0(output_dir,"bipa.png"),width = 600, height = 1500, units = "px")
+#bipa <- 
+ggplot(bhm) + 
+  geom_tile(aes(x,y,fill=z))+
+  scale_fill_gradientn(colours=hmcol)+
+  theme(axis.text.x=element_text(angle=-90,vjust=.2, hjust=0, size = 25), axis.text.y =element_text(size = 25), title = element_text(size = 50))+
+  labs(title="Blood", x="",y="")+
+  coord_fixed()
+dev.off()
+
+hhm<-gsub("N/A", "0", as.matrix(hhm))
+hhm <- as.data.frame(hhm)
+hhm[,1]<-NULL
+hhm[] <- lapply(hhm, as.character)
+hhm[] <- lapply(hhm, as.numeric)
+hhm <- as.matrix(hhm)
+hhm <- hhm[abs(rowSums(hhm))>=3,]
+hdf <- data.frame(P = rownames(melt(hhm)), S= "TIGR4_Inf_Heart_vs_Uninf_Heart", value = melt(hhm)$value)
+colnames(hdf) = c("y","x","z")
+hdf <- hdf[]
+png(filename = paste0(output_dir,"hipa.png"),width = 600, height = 1500, units = "px")
+#hipa <- 
+ggplot(hdf) + 
+  geom_tile(aes(x,y,fill=z))+
+  scale_fill_gradientn(colours=hmcol)+
+  theme(axis.text.x=element_text(angle=-90,vjust=.2, hjust=0, size = 25), axis.text.y =element_text(size = 25), title = element_text(size = 50))+
+  labs(title="Heart", x="",y="")+
+  coord_fixed()
+dev.off()
+
+khm<-gsub("N/A", "0", as.matrix(khm))
+khm <- as.data.frame(khm)
+khm[,3]<-NULL
+khm[] <- lapply(khm, as.character)
+khm[] <- lapply(khm, as.numeric)
+khm <- as.matrix(khm)
+khm <- khm[rowSums(khm)!=0,]
+khm <- khm[abs(rowMeans2(khm))>=3,]
+ord <- hclust(d = dist(khm))$order
+ord2 <- hclust(d = dist(t(khm)))$order
+khm <- khm[ord,ord2]
+khm <- melt(khm)
+colnames(khm) = c("y","x","z")
+png(filename = paste0(output_dir,"kipa.png"),width = 600, height = 1500, units = "px")
+#kipa <- 
+ggplot(khm) + 
+  geom_tile(aes(x,y,fill=z))+
+  scale_fill_gradientn(colours=hmcol)+
+  theme(axis.text.x=element_text(angle=-90,vjust=.2, hjust=0, size = 25), axis.text.y =element_text(size = 25), title = element_text(size = 50))+
+  labs(title="Kidney", x="",y="")+
+  coord_fixed()
+dev.off()
+
+lhm<-gsub("N/A", "0", as.matrix(lhm))
+lhm <- as.data.frame(lhm)
+lhm[,1]<-NULL
+lhm[] <- lapply(lhm, as.character)
+lhm[] <- lapply(lhm, as.numeric)
+lhm <- as.matrix(lhm)
+lhm <- lhm[rowSums(lhm)!=0,]
+lhm <- lhm[abs(rowMeans2(lhm))>=3,]
+ord <- hclust(d = dist(lhm))$order
+ord2 <- hclust(d = dist(t(lhm)))$order
+lhm <- lhm[ord,ord2]
+lhm <- melt(lhm)
+colnames(lhm) = c("y","x","z")
+png(filename = paste0(output_dir,"lipa.png"),width = 600, height = 1500, units = "px")
+#lipa <- 
+  ggplot(lhm) + 
+  geom_tile(aes(x,y,fill=z))+
+  scale_fill_gradientn(colours=hmcol)+
+  theme(axis.text.x=element_text(angle=-90,vjust=.2, hjust=0, size = 25), axis.text.y =element_text(size = 25), title = element_text(size = 50))+
+  labs(title="Lung", x="",y="")+
+  coord_fixed()
+dev.off()
+
+ahm<-gsub("N/A", "0", as.matrix(ahm))
+ahm <- as.data.frame(ahm)
+ahm[,1]<-NULL
+ahm[] <- lapply(ahm, as.character)
+ahm[] <- lapply(ahm, as.numeric)
+ahm <- as.matrix(ahm)
+ahm <- ahm[rowSums(ahm)!=0,]
+ahm <- ahm[abs(rowMeans2(ahm))>=3,]
+ord <- hclust(d = dist(ahm))$order
+ord2 <- hclust(d = dist(t(ahm)))$order
+ahm <- ahm[ord,ord2]
+ahm <- melt(ahm)
+colnames(ahm) = c("y","x","z")
+png(filename = paste0(output_dir,"aipa.png"),width = 600, height = 1500, units = "px")
+#aipa <- 
+  ggplot(ahm) + 
+  geom_tile(aes(x,y,fill=z))+
+  scale_fill_gradientn(colours=hmcol)+
+  theme(axis.text.x=element_text(angle=-90,vjust=.2, hjust=0, size = 25), axis.text.y =element_text(size = 25), title = element_text(size = 50))+
+  labs(title="Core", x="",y="")+
+  coord_fixed()
+dev.off()
+
+fig5plot1n2 <- rasterGrob(readPNG(paste0(input_dir,"/Biorender.png"), native = FALSE),interpolate = FALSE)
+fig5plot3 <- rasterGrob(readPNG(paste0(output_dir,"/cegupset.png"), native = FALSE),interpolate = FALSE)
+fig5plot4 <- rasterGrob(readPNG(paste0(output_dir,"/ceg52.png"), native = FALSE),interpolate = FALSE)
+fig5plot5 <- rasterGrob(readPNG(paste0(output_dir,"/aipa.png"), native = FALSE),interpolate = FALSE)
+fig5plot6 <- rasterGrob(readPNG(paste0(output_dir,"/bipa.png"), native = FALSE),interpolate = FALSE)
+fig5plot7 <- rasterGrob(readPNG(paste0(output_dir,"/hipa.png"), native = FALSE),interpolate = FALSE)
+fig5plot8 <- rasterGrob(readPNG(paste0(output_dir,"/kipa.png"), native = FALSE),interpolate = FALSE)
+fig5plot9 <- rasterGrob(readPNG(paste0(output_dir,"/lipa.png"), native = FALSE),interpolate = FALSE)
+
+pdf(paste0(output_dir,'Figure 5.pdf'), paper = "a4r", width = 0, height = 0)  ## Device with dimensions of A4 paper
+grid.arrange(arrangeGrob(fig5plot1n2,fig5plot3,fig5plot4, nrow = 1, ncol = 3),arrangeGrob(fig5plot5,fig5plot6,fig5plot7,fig5plot8,fig5plot9, nrow = 1, ncol = 5),nrow = 2, ncol =1)
+dev.off()
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

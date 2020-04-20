@@ -971,9 +971,7 @@ comparisons <- c("Blood_vs_Naso","Heart_vs_Naso","Lung_vs_Naso","Kidney_vs_Naso"
 
 counts <- read.delim(counts.path, header = T, row.names = 1)
 design <- read.delim(groups.path, header = T)
-if (kegg.map != "") {
- ltmap <- read.delim(kegg.map, header = F, row.names = 1) 
-}
+
 #Aquiring colors 
 grp.col <- design[,ncol(design)-1]
 grp.pch <- design[,ncol(design)]
